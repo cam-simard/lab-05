@@ -1,6 +1,9 @@
 package com.example.lab5_starter;
 
+import android.graphics.Color;
 import android.os.Bundle;
+import android.util.Log;
+import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ListView;
@@ -11,6 +14,11 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.google.firebase.firestore.CollectionReference;
+import com.google.firebase.firestore.DocumentReference;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.QueryDocumentSnapshot;
+
 import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity implements CityDialogFragment.CityDialogListener {
@@ -18,8 +26,25 @@ public class MainActivity extends AppCompatActivity implements CityDialogFragmen
     private Button addCityButton;
     private ListView cityListView;
 
+    // initialize as false, don't want to delete accidentally
+    private boolean deleteMode = false;
+
     private ArrayList<City> cityArrayList;
     private ArrayAdapter<City> cityArrayAdapter;
+
+    private FirebaseFirestore db;
+    private CollectionReference citiesRef;
+
+    public void toggleDeleteMode(View view) {
+        deleteMode = !deleteMode;
+        if (deleteMode) {
+            ((Button)view).setText("Toggle edit");
+            ((Button)view).setBackgroundColor(Color.BLUE);
+        } else {
+            ((Button)view).setText("Toggle delete");
+            ((Button)view).setBackgroundColor(Color.RED);
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,6 +57,37 @@ public class MainActivity extends AppCompatActivity implements CityDialogFragmen
             return insets;
         });
 
+        db = FirebaseFirestore.getInstance();
+        citiesRef = db.collection("cities");
+
+        citiesRef.addSnapshotListener((value, error) -> {
+            if (error != null) {
+                Log.d("Firestore", error.toString());
+            }
+
+            if(value != null && !value.isEmpty()) {
+                // clear our local array list
+                cityArrayList.clear();
+                // for each document in the collection
+                for (QueryDocumentSnapshot snapshot : value) {
+                    // grab name and province of city, create a new city, add to array list.
+                    // reforming local array list from database
+                    String name = snapshot.getString("name");
+                    String province = snapshot.getString("province");
+
+                    cityArrayList.add(new City(name, province));
+                }
+                cityArrayAdapter.notifyDataSetChanged();
+            }
+
+            // if database is empty
+            else {
+                Log.d("Firestore", "No data");
+                cityArrayList.clear();
+                cityArrayAdapter.notifyDataSetChanged();
+            }
+        });
+
         // Set views
         addCityButton = findViewById(R.id.buttonAddCity);
         cityListView = findViewById(R.id.listviewCities);
@@ -41,7 +97,7 @@ public class MainActivity extends AppCompatActivity implements CityDialogFragmen
         cityArrayAdapter = new CityArrayAdapter(this, cityArrayList);
         cityListView.setAdapter(cityArrayAdapter);
 
-        addDummyData();
+        //addDummyData();
 
         // set listeners
         addCityButton.setOnClickListener(view -> {
@@ -51,8 +107,17 @@ public class MainActivity extends AppCompatActivity implements CityDialogFragmen
 
         cityListView.setOnItemClickListener((adapterView, view, i, l) -> {
             City city = cityArrayAdapter.getItem(i);
-            CityDialogFragment cityDialogFragment = CityDialogFragment.newInstance(city);
-            cityDialogFragment.show(getSupportFragmentManager(),"City Details");
+
+            if(deleteMode == false) {
+                CityDialogFragment cityDialogFragment = CityDialogFragment.newInstance(city);
+                cityDialogFragment.show(getSupportFragmentManager(), "City Details");
+            }
+
+            else {
+                citiesRef.document(city.getName()).delete();
+                //cityArrayList.remove(i);
+                //cityArrayAdapter.notifyDataSetChanged();
+            }
         });
 
     }
@@ -71,6 +136,8 @@ public class MainActivity extends AppCompatActivity implements CityDialogFragmen
         cityArrayList.add(city);
         cityArrayAdapter.notifyDataSetChanged();
 
+        DocumentReference docRef = citiesRef.document(city.getName());
+        docRef.set(city);
     }
 
     public void addDummyData(){
